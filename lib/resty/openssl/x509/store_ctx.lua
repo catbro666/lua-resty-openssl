@@ -224,9 +224,7 @@ function _M:check_revocation(verified_chain)
   -- so there's no need to verify the complete chain.
   self:set_flags(flag_partial_chain + flag_crl_check)
 
-  local check_revocation = ffi.cast("int (*)(X509_STORE_CTX *)",
-                                    C.X509_STORE_CTX_get_check_revocation(self.ctx))
-
+  local check_revocation = C.X509_STORE_CTX_get_check_revocation(self.ctx)
   local code = check_revocation(self.ctx)
   if code == 1 then -- succeess
     return true, nil
