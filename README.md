@@ -4087,6 +4087,8 @@ be the end entity certificate you want to check and the second cert needs to be 
 Returns `true` when the certificate isn't revoked,
 otherwise returns `nil` and error explaining the reason.
 
+Note this function is supported from OpenSSL 1.1.0 and not supported in BoringSSL.
+
 [Back to TOC](#table-of-contents)
 
 ## resty.openssl.x509.revoked

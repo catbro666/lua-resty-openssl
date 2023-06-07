@@ -306,11 +306,11 @@ nil(?:self signed|self-signed) certificate
     GET /t
 --- response_body_like eval
 "truenil
+(?:truenil|nilx509.store_ctx:check_revocation: this API is not supported in BoringSSL)
 truenil
-truenil
-nilcertificate revoked
+nil(?:certificate revoked|x509.store_ctx:check_revocation: this API is not supported in BoringSSL)
 nil(?:self signed|self-signed) certificate
-nilx509.store_ctx:check_revocation: store_ctx isn't verified and verified_chain argument isn't passed
+nil(?:x509.store_ctx:check_revocation: store_ctx isn't verified and verified_chain argument isn't passed|x509.store_ctx:check_revocation: this API is not supported in BoringSSL)
 "
 --- no_error_log
 [error]
@@ -351,13 +351,58 @@ nilx509.store_ctx:check_revocation: store_ctx isn't verified and verified_chain 
     }
 --- request
     GET /t
---- response_body eval
-"nilx509.store_ctx:check_revocation: store_ctx isn't verified and verified_chain argument isn't passed
-truenil
-nilx509.store_ctx:check_revocation: store_ctx isn't verified and verified_chain argument isn't passed
-nilcertificate revoked
+--- response_body_like eval
+"nil(?:x509\.store_ctx:check_revocation: store_ctx isn't verified and verified_chain argument isn't passed|x509\.store_ctx:check_revocation: this API is not supported in BoringSSL)
+(?:truenil|nilx509\.store_ctx:check_revocation: this API is not supported in BoringSSL)
+nil(?:x509\.store_ctx:check_revocation: store_ctx isn't verified and verified_chain argument isn't passed|x509\.store_ctx:check_revocation: this API is not supported in BoringSSL)
+nil(?:certificate revoked|x509\.store_ctx:check_revocation: this API is not supported in BoringSSL)
 "
 --- no_error_log
 [error]
 --- skip_openssl
 3: < 1.1.0
+
+
+=== TEST 11: Check revocation only supported from OpenSSL 1.1.0
+--- http_config eval: $::HttpConfig
+--- config
+    location =/t {
+        content_by_lua_block {
+            local lib = myassert(require("resty.openssl.x509.store_ctx"))
+            local c1 = myassert(lib.new(store, valid_cert))
+            local c2 = myassert(lib.new(store, revoked_cert))
+            local c3 = myassert(lib.new())
+            local c4 = myassert(lib.new())
+
+            -- to get the verified_chain first
+            local chain1 = myassert(c1:verify(true))
+            local chain2 = myassert(c2:verify(true))
+
+            myassert(c3:add_crl(crl))
+            local ok, err = c3:check_revocation()
+            ngx.say(ok, err)
+
+            local ok, err = c3:check_revocation(chain1)
+            ngx.say(ok, err)
+
+            myassert(c4:add_crl(crl))
+            local ok, err = c4:check_revocation()
+            ngx.say(ok, err)
+
+            local ok, err = c4:check_revocation(chain2)
+            ngx.say(ok, err)
+
+        }
+    }
+--- request
+    GET /t
+--- response_body_like eval
+"nil(?:x509.store_ctx:check_revocation: this API is supported from OpenSSL 1.1.0|x509.store_ctx:check_revocation: this API is not supported in BoringSSL)
+nil(?:x509.store_ctx:check_revocation: this API is supported from OpenSSL 1.1.0|x509.store_ctx:check_revocation: this API is not supported in BoringSSL)
+nil(?:x509.store_ctx:check_revocation: this API is supported from OpenSSL 1.1.0|x509.store_ctx:check_revocation: this API is not supported in BoringSSL)
+nil(?:x509.store_ctx:check_revocation: this API is supported from OpenSSL 1.1.0|x509.store_ctx:check_revocation: this API is not supported in BoringSSL)
+"
+--- no_error_log
+[error]
+--- skip_openssl
+3: >= 1.1.0

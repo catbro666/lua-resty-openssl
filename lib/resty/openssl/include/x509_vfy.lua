@@ -6,6 +6,7 @@ require "resty.openssl.include.stack"
 local OPENSSL_10 = require("resty.openssl.version").OPENSSL_10
 local OPENSSL_11_OR_LATER = require("resty.openssl.version").OPENSSL_11_OR_LATER
 local OPENSSL_3X = require("resty.openssl.version").OPENSSL_3X
+local BORINGSSL = require("resty.openssl.version").BORINGSSL
 local BORINGSSL_110 = require("resty.openssl.version").BORINGSSL_110
 
 ffi.cdef [[
@@ -92,14 +93,25 @@ elseif OPENSSL_11_OR_LATER then
   _M.X509_STORE_CTX_get0_chain = C.X509_STORE_CTX_get0_chain
 end
 
-if OPENSSL_3X then
-  ffi.cdef [[
-    X509_STORE_CTX_check_revocation_fn X509_STORE_CTX_get_check_revocation(const X509_STORE_CTX *ctx);
-  ]];
-elseif OPENSSL_11_OR_LATER then
-  ffi.cdef [[
-    X509_STORE_CTX_check_revocation_fn X509_STORE_CTX_get_check_revocation(X509_STORE_CTX *ctx);
-  ]];
+-- these two apis are supported from 1.1.0 but not supported by boringssl
+if not BORINGSSL then
+  if OPENSSL_11_OR_LATER then
+    ffi.cdef [[
+      typedef int (*X509_STORE_CTX_check_revocation_fn)(X509_STORE_CTX *ctx);
+      // STACK_OF(X509)
+      void X509_STORE_CTX_set0_verified_chain(X509_STORE_CTX *ctx, OPENSSL_STACK *sk);
+    ]];
+  end
+
+  if OPENSSL_3X then
+    ffi.cdef [[
+      X509_STORE_CTX_check_revocation_fn X509_STORE_CTX_get_check_revocation(const X509_STORE_CTX *ctx);
+    ]];
+  elseif OPENSSL_11_OR_LATER then
+    ffi.cdef [[
+      X509_STORE_CTX_check_revocation_fn X509_STORE_CTX_get_check_revocation(X509_STORE_CTX *ctx);
+    ]];
+  end
 end
 
 if OPENSSL_3X then

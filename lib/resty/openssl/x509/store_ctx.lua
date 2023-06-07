@@ -13,6 +13,7 @@ local ctx_lib = require "resty.openssl.ctx"
 local format_error = require("resty.openssl.err").format_error
 local OPENSSL_11_OR_LATER = require("resty.openssl.version").OPENSSL_11_OR_LATER
 local OPENSSL_3X = require("resty.openssl.version").OPENSSL_3X
+local BORINGSSL = require("resty.openssl.version").BORINGSSL
 
 local _M = {}
 local mt = { __index = _M }
@@ -192,6 +193,10 @@ function _M:verify(return_chain)
 end
 
 function _M:check_revocation(verified_chain)
+  if BORINGSSL then
+    return nil, "x509.store_ctx:check_revocation: this API is not supported in BoringSSL"
+  end
+
   if not OPENSSL_11_OR_LATER then
     return nil, "x509.store_ctx:check_revocation: this API is supported from OpenSSL 1.1.0"
   end
