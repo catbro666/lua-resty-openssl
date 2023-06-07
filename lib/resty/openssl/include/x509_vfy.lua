@@ -98,18 +98,9 @@ if not BORINGSSL then
   if OPENSSL_11_OR_LATER then
     ffi.cdef [[
       typedef int (*X509_STORE_CTX_check_revocation_fn)(X509_STORE_CTX *ctx);
+      X509_STORE_CTX_check_revocation_fn X509_STORE_CTX_get_check_revocation(const X509_STORE_CTX *ctx);
       // STACK_OF(X509)
       void X509_STORE_CTX_set0_verified_chain(X509_STORE_CTX *ctx, OPENSSL_STACK *sk);
-    ]];
-  end
-
-  if OPENSSL_3X then
-    ffi.cdef [[
-      X509_STORE_CTX_check_revocation_fn X509_STORE_CTX_get_check_revocation(const X509_STORE_CTX *ctx);
-    ]];
-  elseif OPENSSL_11_OR_LATER then
-    ffi.cdef [[
-      X509_STORE_CTX_check_revocation_fn X509_STORE_CTX_get_check_revocation(X509_STORE_CTX *ctx);
     ]];
   end
 end
