@@ -3967,13 +3967,9 @@ Module to interact with X.509 certificate store ctx (X509_STORE_CTX).
 
 ### store_ctx.new
 
-**syntax**: *ctx, err = store_ctx.new(store?, x509?, chain?, properties?)*
+**syntax**: *ctx, err = store_ctx.new(store, x509, chain?, properties?)*
 
 Creates a new `store_ctx` instance.
-
-Normally we need to set the first 2 arguments at least if you want to call the
-`store_ctx:verify` later. One exception is to call `store_ctx:check_revocation`
-directly with argument `verified_chain` passed.
 
 The first argument `store` is the trusted certificate store and must be a
 [resty.openssl.x509.store](#restyopensslx509store) instance.
