@@ -326,8 +326,8 @@ nil(?:x509.store_ctx:check_revocation: store_ctx isn't verified and verified_cha
             local lib = myassert(require("resty.openssl.x509.store_ctx"))
             local c1 = myassert(lib.new(store, valid_cert))
             local c2 = myassert(lib.new(store, revoked_cert))
-            local c3 = myassert(lib.new())
-            local c4 = myassert(lib.new())
+            local c3 = myassert(lib.new(store, valid_cert))
+            local c4 = myassert(lib.new(store, revoked_cert))
 
             -- to get the verified_chain first
             local chain1 = myassert(c1:verify(true))
