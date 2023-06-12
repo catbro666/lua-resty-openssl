@@ -1,20 +1,32 @@
 local ffi = require "ffi"
 local C = ffi.C
 local ffi_gc = ffi.gc
+local ffi_str = ffi.string
 local bor = bit.bor
 
 local x509_vfy_macro = require "resty.openssl.include.x509_vfy"
 local x509_lib = require "resty.openssl.x509"
+local chain_lib = require "resty.openssl.x509.chain"
 local crl_lib = require "resty.openssl.x509.crl"
-local store_ctx_lib = require "resty.openssl.x509.store_ctx"
+local stack_lib = require "resty.openssl.stack"
 local ctx_lib = require "resty.openssl.ctx"
 local format_all_error = require("resty.openssl.err").format_all_error
 local format_error = require("resty.openssl.err").format_error
+local OPENSSL_11_OR_LATER = require("resty.openssl.version").OPENSSL_11_OR_LATER
+local OPENSSL_3X = require("resty.openssl.version").OPENSSL_3X
+local BORINGSSL = require("resty.openssl.version").BORINGSSL
 
 local _M = {}
 local mt = { __index = _M }
 
 _M.verify_flags = x509_vfy_macro.verify_flags
+local flag_crl_check = _M.verify_flags.X509_V_FLAG_CRL_CHECK
+
+local crl_stack_M = {}
+local STACK = "X509_CRL"
+local crl_stack_new = stack_lib.new_of(STACK)
+local crl_stack_add = stack_lib.add_of(STACK)
+local crl_stack_mt = stack_lib.mt_of(STACK, crl_lib.dup, crl_stack_M)
 
 local x509_store_ptr_ct = ffi.typeof('X509_STORE*')
 
@@ -169,24 +181,150 @@ function _M:set_flags(...)
 end
 
 function _M:verify(x509, chain, return_chain, properties, verify_method, flags)
-  local ctx, err = store_ctx_lib.new(self, x509, chain, properties)
-
-  if not ctx then
-    return nil, err
+  if not x509_lib.istype(x509) then
+    return nil, "x509.store:verify: expect a x509 instance at #1"
+  elseif chain and not chain_lib.istype(chain) then
+    return nil, "x509.store:verify: expect a x509.chain instance at #1"
   end
 
-  if verify_method then
-    local ok, err = ctx:set_default(verify_method)
-    if not ok then
+  local ctx
+  if OPENSSL_3X then
+    ctx = C.X509_STORE_CTX_new_ex(ctx_lib.get_libctx(), properties)
+  else
+    ctx = C.X509_STORE_CTX_new()
+  end
+  if ctx == nil then
+    return nil, "x509.store:verify: X509_STORE_CTX_new() failed"
+  end
+
+  ffi_gc(ctx, C.X509_STORE_CTX_free)
+
+  local chain_dup_ctx
+  if chain then
+    local chain_dup, err = chain_lib.dup(chain.ctx)
+    if err then
       return nil, err
     end
+    chain_dup_ctx = chain_dup.ctx
+  end
+
+  if C.X509_STORE_CTX_init(ctx, self.ctx, x509.ctx, chain_dup_ctx) ~= 1 then
+    return nil, format_error("x509.store:verify: X509_STORE_CTX_init")
+  end
+
+  if verify_method and C.X509_STORE_CTX_set_default(ctx, verify_method) ~= 1 then
+    return nil, "x509.store:verify: invalid verify_method \"" .. verify_method .. "\""
   end
 
   if flags then
-    ctx:set_flags(flags)
+    C.X509_STORE_CTX_set_flags(ctx, flags)
   end
 
-  return ctx:verify(return_chain)
+  local code = C.X509_verify_cert(ctx)
+  if code == 1 then -- verified
+    if not return_chain then
+      return true, nil
+    end
+    local ret_chain_ctx = x509_vfy_macro.X509_STORE_CTX_get0_chain(ctx)
+    return chain_lib.dup(ret_chain_ctx)
+  elseif code == 0 then -- unverified
+    local vfy_code = C.X509_STORE_CTX_get_error(ctx)
+
+    return nil, ffi_str(C.X509_verify_cert_error_string(vfy_code))
+  end
+
+  -- error
+  return nil, format_error("x509.store:verify: X509_verify_cert", code)
+
+end
+
+function _M:check_revocation(verified_chain, crls, properties)
+  if BORINGSSL then
+    return nil, "x509.store:check_revocation: this API is not supported in BoringSSL"
+  end
+
+  if not OPENSSL_11_OR_LATER then
+    return nil, "x509.store:check_revocation: this API is supported from OpenSSL 1.1.0"
+  end
+
+  if not verified_chain or not chain_lib.istype(verified_chain) then
+    return nil, "x509.store:check_revocation: expect a x509.chain instance at #1"
+  end
+
+  local crl_table
+  if crls then
+    if crl_lib.istype(crls) then
+      crl_table = { crls }
+
+    elseif type(crls) == "table" then
+      for _, v in ipairs(crls) do
+        if not crl_lib.istype(v) then
+          return nil, "x509.store:check_revocation: expect a x509.crl instance or a table of x509.crl instance at #2"
+        end
+      end
+      crl_table = crls
+
+    else
+      return nil, "x509.store:check_revocation: expect a x509.crl instance or a table of x509.crl instance at #2"
+    end
+  end
+
+  local ctx
+  if OPENSSL_3X then
+    ctx = C.X509_STORE_CTX_new_ex(ctx_lib.get_libctx(), properties)
+  else
+    ctx = C.X509_STORE_CTX_new()
+  end
+  if ctx == nil then
+    return nil, "x509.store:check_revocation: X509_STORE_CTX_new() failed"
+  end
+
+  ffi_gc(ctx, C.X509_STORE_CTX_free)
+
+  if C.X509_STORE_CTX_init(ctx, self.ctx, nil, nil) ~= 1 then
+    return nil, format_error("x509.store:check_revocation: X509_STORE_CTX_init")
+  end
+
+  C.X509_STORE_CTX_set0_verified_chain(ctx, verified_chain.ctx)
+
+  if crl_table then
+    local raw, err = crl_stack_new()
+    if raw == nil then
+      return nil, "x509.store:check_revocation: " .. err
+    end
+
+    local crl_stack = setmetatable({
+      ctx = raw,
+    }, crl_stack_mt)
+
+    for _, crl in ipairs(crl_table) do
+      local dup = C.X509_CRL_dup(crl.ctx)
+      if dup == nil then
+        return nil, format_error("x509.store:check_revocation: X509_CRL_dup")
+      end
+
+      local ok, err = crl_stack_add(crl_stack.ctx, dup)
+      if not ok then
+        C.X509_CRL_free(dup)
+        return nil, err
+      end
+    end
+
+    C.X509_STORE_CTX_set0_crls(ctx, crl_stack.ctx)
+  end
+
+  -- enables CRL checking for the certificate chain leaf certificate.
+  -- An error occurs if a suitable CRL cannot be found.
+  C.X509_STORE_CTX_set_flags(ctx, flag_crl_check)
+
+  local check_revocation = C.X509_STORE_CTX_get_check_revocation(ctx)
+  local code = check_revocation(ctx)
+  if code == 1 then -- succeess
+    return true, nil
+  else
+    local vfy_code = C.X509_STORE_CTX_get_error(ctx)
+    return nil, ffi_str(C.X509_verify_cert_error_string(vfy_code))
+  end
 end
 
 return _M
